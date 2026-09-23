@@ -5,6 +5,10 @@ on:
     branches:
       - capture/gpu-books-2026-09-23
 
+concurrency:
+  group: capture-gpu-books-2026-09-23
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -20,7 +24,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: isomorphisms/idris-shader-backend
-          ref: main
+          ref: archive/fresh-gpu-book-snapshots-2026-09-23
           path: _shader
 
       - name: Set up Node
@@ -44,10 +48,10 @@ jobs:
             attempted_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
             stdout=$(mktemp)
             stderr=$(mktemp)
-            status=ok
+            status=requested
             snapshot=''
 
-            if timeout 240 node bin/index.js --renew --quiet "$live_url" >"$stdout" 2>"$stderr"; then
+            if timeout 240 node bin/index.js --renew --incomplete --quiet "$live_url" >"$stdout" 2>"$stderr"; then
               snapshot=$(tail -n 1 "$stdout" | tr -d '\r\n')
               if ! printf '%s\n' "$snapshot" | grep -Eq '^https://archive\.[^/]+/[A-Za-z0-9]+'; then
                 status=invalid-output
