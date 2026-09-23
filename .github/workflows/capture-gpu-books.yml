@@ -1,0 +1,74 @@
+name: Capture GPU book pages
+
+on:
+  push:
+    branches:
+      - capture/gpu-books-2026-09-23
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout archive.today CLI
+        uses: actions/checkout@v4
+
+      - name: Checkout GPU shader archive targets
+        uses: actions/checkout@v4
+        with:
+          repository: isomorphisms/idris-shader-backend
+          ref: main
+          path: _shader
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install CLI dependencies
+        run: npm ci
+
+      - name: Create fresh archive.today captures
+        shell: bash
+        run: |
+          set -u
+          input='_shader/books about GPU programming/archive-targets.tsv'
+          out='archive-capture-results.tsv'
+          printf 'title\tlive_url\tstatus\tsnapshot_url\tattempted_at\tnote\n' > "$out"
+
+          tail -n +2 "$input" |
+          while IFS=$'\t' read -r title live_url _rest; do
+            attempted_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+            stdout=$(mktemp)
+            stderr=$(mktemp)
+            status=ok
+            snapshot=''
+
+            if timeout 240 node bin/index.js --renew --quiet "$live_url" >"$stdout" 2>"$stderr"; then
+              snapshot=$(tail -n 1 "$stdout" | tr -d '\r\n')
+              if ! printf '%s\n' "$snapshot" | grep -Eq '^https://archive\.[^/]+/[A-Za-z0-9]+'; then
+                status=invalid-output
+              fi
+            else
+              status=failed
+            fi
+
+            note=$(tr '\t\r\n' '   ' < "$stderr" | head -c 500)
+            printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+              "$title" "$live_url" "$status" "$snapshot" "$attempted_at" "$note" >> "$out"
+
+            rm -f "$stdout" "$stderr"
+            sleep 2
+          done
+
+          cat "$out"
+
+      - name: Upload capture ledger
+        uses: actions/upload-artifact@v4
+        with:
+          name: archive-capture-results
+          path: archive-capture-results.tsv
+          if-no-files-found: error
